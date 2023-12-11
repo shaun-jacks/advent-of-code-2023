@@ -15,6 +15,7 @@ type Node struct {
 	Distance int
 	I        int
 	J        int
+	Adj      [][]int
 }
 
 func NewNode(value string, distance, i, j int) *Node {
@@ -23,7 +24,37 @@ func NewNode(value string, distance, i, j int) *Node {
 		Distance: distance,
 		I:        i,
 		J:        j,
+		Adj:      [][]int{},
 	}
+}
+
+func MapValueToAdjacencyDiffs(value string) [][]int {
+	switch value {
+	case "|":
+		return [][]int{{-1, 0}, {1, 0}}
+	case "-":
+		return [][]int{{0, -1}, {0, 1}}
+	case "L":
+		return [][]int{{-1, 0}, {0, 1}}
+	case "J":
+		return [][]int{{-1, 0}, {0, -1}}
+	case "7":
+		return [][]int{{1, 0}, {0, -1}}
+	case "F":
+		return [][]int{{1, 0}, {0, 1}}
+	}
+	return [][]int{}
+}
+
+func MapDiffsToIndices(diffs [][]int, i, j, m, n int) [][]int {
+	indices := make([][]int, 0)
+	for _, diff := range diffs {
+		newX, newY := i+diff[0], j+diff[1]
+		if 0 <= newX && newX < m && 0 <= newY && newY < n {
+			indices = append(indices, []int{newX, newY})
+		}
+	}
+	return indices
 }
 
 type Queue struct {
@@ -92,8 +123,10 @@ func calculateStartValue(i, j, m, n int, graph [][]string) string {
 
 func main() {
 	graph := make([][]string, 0)
-	visited := make([][]bool, 0)
-	f, err := os.Open("./day-10/input.txt")
+	graphNodes := make([][]*Node, 0)
+	adjacencyGraph := make([][][]int, 0)
+	mainLoopGraph := make([][]bool, 0)
+	f, err := os.Open("./day-10/part1/input.txt")
 	if err != nil {
 		log.Fatal("Failed to open file", err)
 		return
@@ -105,48 +138,49 @@ func main() {
 	for scanner.Scan() {
 		line := scanner.Text()
 		row := make([]string, 0, len(line))
-		visitedRow := make([]bool, 0, len(line))
+		graphNodeRow := make([]*Node, 0, len(line))
+		mainLoopRow := make([]bool, 0, len(line))
+		adjacencyRow := make([][]int, 0, len(line))
 		fmt.Println(line)
 		for idx, c := range line {
 			if string(c) == "S" {
 				startI, startJ = lineCount, idx
 			}
 			row = append(row, string(c))
-			visitedRow = append(visitedRow, false)
+			graphNodeRow = append(graphNodeRow, NewNode(string(c), 0, lineCount, idx))
+			mainLoopRow = append(mainLoopRow, false)
+			adjacencyRow = append(adjacencyRow, []int{})
 		}
+		graphNodes = append(graphNodes, graphNodeRow)
+		mainLoopGraph = append(mainLoopGraph, mainLoopRow)
+		adjacencyGraph = append(adjacencyGraph, adjacencyRow)
 		graph = append(graph, row)
-		visited = append(visited, visitedRow)
 		lineCount++
 	}
-
-	startNode := NewNode(calculateStartValue(startI, startJ, len(graph), len(graph[0]), graph), 0, startI, startJ)
+	startNode := graphNodes[startI][startJ]
+	startNode.Value = calculateStartValue(startI, startJ, len(graph), len(graph[0]), graph)
+	for i, row := range graphNodes {
+		for j := range row {
+			node := graphNodes[i][j]
+			adjDiffs := MapValueToAdjacencyDiffs(node.Value)
+			node.Adj = MapDiffsToIndices(adjDiffs, node.I, node.J, len(graphNodes), len(row))
+		}
+	}
 	q := NewQueue()
 	q.Push(startNode)
 	maxDist := 0
 	for !q.IsEmpty() {
 		currNode := q.Pop()
-		c, i, j := currNode.Value, currNode.I, currNode.J
-		visited[currNode.I][currNode.J] = true
+		_, i, j := currNode.Value, currNode.I, currNode.J
+		mainLoopGraph[i][j] = true
 		graph[currNode.I][currNode.J] = strconv.Itoa(currNode.Distance)
-		fromUp := c == "|" || c == "L" || c == "J" && i-1 >= 0 && i-1 < len(graph)
-		fromDown := c == "|" || c == "7" || c == "F" && i+1 >= 0 && i+1 < len(graph)
-		fromLeft := c == "-" || c == "7" || c == "J" && j-1 >= 0 && j-1 < len(graph[0])
-		fromRight := c == "-" || c == "L" || c == "F" && j+1 >= 0 && j+1 < len(graph[0])
-		if fromUp && !visited[i-1][j] {
-			maxDist = currNode.Distance + 1
-			q.Push(NewNode(graph[i-1][j], currNode.Distance+1, i-1, j))
-		}
-		if fromDown && !visited[i+1][j] {
-			maxDist = currNode.Distance + 1
-			q.Push(NewNode(graph[i+1][j], currNode.Distance+1, i+1, j))
-		}
-		if fromLeft && !visited[i][j-1] {
-			maxDist = currNode.Distance + 1
-			q.Push(NewNode(graph[i][j-1], currNode.Distance+1, i, j-1))
-		}
-		if fromRight && !visited[i][j+1] {
-			maxDist = currNode.Distance + 1
-			q.Push(NewNode(graph[i][j+1], currNode.Distance+1, i, j+1))
+		for _, adj := range currNode.Adj {
+			nextNode := graphNodes[adj[0]][adj[1]]
+			if !mainLoopGraph[adj[0]][adj[1]] {
+				nextNode.Distance = currNode.Distance + 1
+				maxDist = nextNode.Distance
+				q.Push(nextNode)
+			}
 		}
 	}
 	for _, v := range graph {
